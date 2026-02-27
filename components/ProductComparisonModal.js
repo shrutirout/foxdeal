@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import Image from "next/image";
-import { Star, Users, Store, Globe, Check, Loader2, ExternalLink } from "lucide-react";
+import { Star, Users, Check, Loader2, ExternalLink, Package } from "lucide-react";
 
 export default function ProductComparisonModal({
   isOpen,
@@ -241,9 +241,9 @@ function ProductCard({ product, isSelected, onToggle, isOriginal, formatPrice })
   return (
     <div className="p-4">
       <div className="flex gap-4">
-        {productImageUrl && (
-          <div className="flex-shrink-0">
-            <div className="relative w-24 h-24 border rounded-lg overflow-hidden bg-gray-50">
+        <div className="flex-shrink-0">
+          <div className="relative w-24 h-24 border rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+            {productImageUrl ? (
               <Image
                 src={productImageUrl}
                 alt={productName}
@@ -251,9 +251,11 @@ function ProductCard({ product, isSelected, onToggle, isOriginal, formatPrice })
                 className="object-contain p-2"
                 unoptimized
               />
-            </div>
+            ) : (
+              <Package className="w-8 h-8 text-gray-300" />
+            )}
           </div>
-        )}
+        </div>
 
         <div className="flex-1 space-y-2">
           <h4 className="font-semibold text-gray-900 line-clamp-2 text-sm">

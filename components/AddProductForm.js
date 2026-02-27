@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { addProduct, searchProductsByName, addMultipleProducts } from "@/app/actions";
+import { findSimilarProducts, searchProductsByName, addMultipleProducts } from "@/app/actions";
 import AuthModal from "./AuthModal";
 import ProductComparisonModal from "./ProductComparisonModal";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,14 @@ export default function AddProductForm({ user }) {
   const [loading, setLoading] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showComparisonModal, setShowComparisonModal] = useState(false);
+  const [originalProduct, setOriginalProduct] = useState(null);
   const [products, setProducts] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [analysis, setAnalysis] = useState(null);
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  const handleQuickAdd = async (e) => {
+  // url mode: scrape original + find same product across other platforms via gemini
+  const handleUrlCompare = async (e) => {
     e.preventDefault();
 
     if (!user) {
@@ -35,26 +38,31 @@ export default function AddProductForm({ user }) {
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("url", input.trim());
-
-      const result = await addProduct(formData);
+      const result = await findSimilarProducts(input.trim());
 
       if (result.error) {
         toast.error(result.error);
-      } else {
-        toast.success("Product added to tracking!");
-        setInput("");
-        window.location.reload();
+        return;
+      }
+
+      setOriginalProduct(result.original);
+      setProducts(result.alternatives || []);
+      setAnalysis(result.analysis || null);
+      setIsSearchMode(false);
+      setShowComparisonModal(true);
+
+      if (result.geminiError) {
+        toast.warning("Found your product but couldn't search other platforms right now.");
       }
     } catch (error) {
-      console.error("Quick add error:", error);
-      toast.error(error.message || "Failed to add product");
+      console.error("URL compare error:", error);
+      toast.error(error.message || "Failed to process product");
     } finally {
       setLoading(false);
     }
   };
 
+  // search mode: find product by name across platforms via gemini smart search
   const handleSmartSearch = async (e) => {
     e.preventDefault();
 
@@ -86,18 +94,19 @@ export default function AddProductForm({ user }) {
       }
 
       // mapping scraped results to comparison modal format
-      const transformedProducts = result.products.map(p => ({
+      const transformedProducts = result.products.map((p) => ({
         ...p.productData,
         dealScore: p.dealScore,
         url: p.url,
         platform: p.platform,
-        platformDomain: p.productData?.platformDomain || p.platform
+        platformDomain: p.productData?.platformDomain || p.platform,
       }));
 
+      setOriginalProduct(null);
       setProducts(transformedProducts);
-      setSearchQuery(result.query);
+      setAnalysis({ productName: result.searchQuery || input.trim() });
+      setIsSearchMode(true);
       setShowComparisonModal(true);
-
     } catch (error) {
       console.error("Smart search error:", error);
       toast.error(error.message || "Failed to search for products");
@@ -147,7 +156,7 @@ export default function AddProductForm({ user }) {
             }`}
           >
             <Link2 className="w-4 h-4" />
-            Quick Add (URL)
+            Compare by URL
           </button>
           <button
             onClick={() => setMode("search")}
@@ -163,7 +172,7 @@ export default function AddProductForm({ user }) {
         </div>
 
         <form
-          onSubmit={mode === "url" ? handleQuickAdd : handleSmartSearch}
+          onSubmit={mode === "url" ? handleUrlCompare : handleSmartSearch}
           className="flex gap-2"
         >
           <Input
@@ -182,12 +191,10 @@ export default function AddProductForm({ user }) {
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {mode === "url" ? "Adding..." : "Searching..."}
+                {mode === "url" ? "Searching platforms..." : "Searching..."}
               </>
             ) : (
-              <>
-                {mode === "url" ? "Add Product" : "Search"}
-              </>
+              <>{mode === "url" ? "Find & Compare" : "Search"}</>
             )}
           </Button>
         </form>
@@ -195,7 +202,7 @@ export default function AddProductForm({ user }) {
         <p className="text-sm text-gray-500 mt-2">
           {mode === "url" ? (
             <>
-              <strong>Quick Add:</strong> Paste a product URL to instantly track that specific product
+              <strong>Compare by URL:</strong> Paste a product URL — we scrape it and find the same product across other platforms so you can compare prices and pick what to track
             </>
           ) : (
             <>
@@ -214,11 +221,11 @@ export default function AddProductForm({ user }) {
           setLoading(false);
         }}
         onConfirm={handleConfirmProducts}
-        original={null}
+        original={isSearchMode ? null : originalProduct}
         alternatives={products}
-        analysis={{ productName: searchQuery }}
+        analysis={analysis}
         loading={confirming}
-        searchMode={true}
+        searchMode={isSearchMode}
       />
     </>
   );

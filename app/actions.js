@@ -213,6 +213,46 @@ export async function signOut() {
   redirect("/");
 }
 
+// checking if a scraped product is actually the same product as the original
+// key numbers in product names (model gen, storage, year) must all match
+function isSameProduct(originalName, scrapedName) {
+  if (!originalName || !scrapedName) return false;
+
+  const normalize = (str) =>
+    str
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const origNorm = normalize(originalName);
+  const scrapedNorm = normalize(scrapedName);
+
+  // numbers are the most critical differentiator: "iphone 15" vs "iphone 17", "128gb" vs "256gb"
+  // every 2+ digit number in the original must appear in the scraped name
+  const origNumbers = origNorm.match(/\b\d{2,}\b/g) || [];
+  const scrapedNumbers = new Set(scrapedNorm.match(/\b\d{2,}\b/g) || []);
+
+  for (const num of origNumbers) {
+    if (!scrapedNumbers.has(num)) {
+      console.log(`Product mismatch: number "${num}" in original not found in scraped`);
+      return false;
+    }
+  }
+
+  // general word overlap — brand + product type must be present
+  const origWords = origNorm.split(" ").filter((w) => w.length > 2);
+  const scrapedWords = new Set(scrapedNorm.split(" ").filter((w) => w.length > 2));
+
+  let matches = 0;
+  for (const word of origWords) {
+    if (scrapedWords.has(word)) matches++;
+  }
+
+  const matchRatio = origWords.length > 0 ? matches / origWords.length : 0;
+  return matchRatio >= 0.35;
+}
+
 // finding same product across other platforms using gemini
 export async function findSimilarProducts(url) {
   if (!url) {
@@ -309,6 +349,20 @@ export async function findSimilarProducts(url) {
         console.log(`Scraping ${platform}...`);
 
         const productData = await scrapeProduct(productUrl);
+
+        // rejecting results that don't match the original product (wrong variant/generation)
+        if (!isSameProduct(originalProduct.productName, productData.productName)) {
+          console.log(
+            `${platform}: product name mismatch — expected "${originalProduct.productName}", got "${productData.productName}". Skipping.`
+          );
+          return null;
+        }
+
+        // requiring an image — a product card without an image is not useful
+        if (!productData.productImageUrl) {
+          console.log(`${platform}: no image found, skipping`);
+          return null;
+        }
 
         const dealScore = calculateDealScore({
           rating: productData.rating,
