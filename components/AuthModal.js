@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
+const DEMO_EMAIL = "demo@foxdeal.app";
+const DEMO_PASSWORD = "foxdeal123";
+
 export default function AuthModal({ isOpen, onClose }) {
   const supabase = createClient();
   const [email, setEmail] = useState("");
@@ -103,6 +106,24 @@ export default function AuthModal({ isOpen, onClose }) {
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-4">
+
+          <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm">
+            <p className="font-semibold text-orange-800 mb-1.5">Demo account</p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-gray-700 space-y-0.5">
+                <p><span className="text-gray-500">Email:</span> {DEMO_EMAIL}</p>
+                <p><span className="text-gray-500">Password:</span> {DEMO_PASSWORD}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEmail(DEMO_EMAIL); setPassword(DEMO_PASSWORD); }}
+                className="shrink-0 text-xs font-medium text-orange-700 border border-orange-300 rounded px-2.5 py-1 hover:bg-orange-100 transition-colors"
+              >
+                Use this
+              </button>
+            </div>
+          </div>
+
           <form onSubmit={handleEmailAuth} className="flex flex-col gap-3">
             <Input
               type="email"
