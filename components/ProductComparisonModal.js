@@ -100,11 +100,19 @@ export default function ProductComparisonModal({
   };
 
   const handleConfirm = () => {
-    onConfirm(selectedURLs);
+    // always include original url in url mode regardless of selectedURLs state
+    // (useState initializes once so original.url may not be in the array if props changed after mount)
+    if (!searchMode && original) {
+      const withOriginal = [original.url, ...selectedURLs.filter((u) => u !== original.url)];
+      onConfirm(withOriginal);
+    } else {
+      onConfirm(selectedURLs);
+    }
   };
 
-  const totalProducts = 1 + alternatives.length;
-  const selectedCount = selectedURLs.length;
+  const totalProducts = searchMode ? alternatives.length : 1 + alternatives.length;
+  // in url mode, original is always included so count starts at 1
+  const selectedCount = (!searchMode && original) ? 1 + selectedURLs.filter((u) => u !== original.url).length : selectedURLs.length;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>

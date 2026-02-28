@@ -3,7 +3,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { scrapeProduct } from "@/lib/firecrawl";
 import { calculateDealScore } from "@/lib/dealScore";
-import { findSimilarProductURLs, filterValidURLs } from "@/lib/gemini";
+// gemini.js kept for reference but url compare now uses gemini-search-working approach
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -253,7 +253,7 @@ function isSameProduct(originalName, scrapedName) {
   return matchRatio >= 0.35;
 }
 
-// finding same product across other platforms using gemini
+// finding same product across other platforms using search urls + firecrawl productUrl extraction
 export async function findSimilarProducts(url) {
   if (!url) {
     return { error: "URL is required" };
@@ -288,72 +288,63 @@ export async function findSimilarProducts(url) {
       name: originalProduct.productName,
       price: originalProduct.currentPrice,
       platform: originalProduct.platformDomain,
-      score: originalScore.score
     });
 
-    // asking gemini for alternative platform urls
-    let geminiResult;
-    try {
-      geminiResult = await findSimilarProductURLs(originalProduct);
-    } catch (geminiError) {
-      console.error("Gemini analysis failed:", geminiError);
+    // using gemini search analysis to build platform search urls (more reliable than url generation)
+    const { analyzeProductForSearch, buildSearchURLs, validateSearchURL } =
+      await import("@/lib/gemini-search-working");
 
+    let searchAnalysis;
+    try {
+      searchAnalysis = await analyzeProductForSearch(originalProduct.productName);
+    } catch (analysisError) {
+      console.error("Search analysis failed:", analysisError);
       return {
         success: true,
-        original: {
-          ...originalProduct,
-          dealScore: originalScore,
-          url,
-        },
+        original: { ...originalProduct, dealScore: originalScore, url },
         alternatives: [],
-        analysis: {
-          brand: "Unknown",
-          productName: originalProduct.productName,
-          category: "Unknown",
-          variant: ""
-        },
-        geminiError: geminiError.message,
+        analysis: { productName: originalProduct.productName },
+        geminiError: analysisError.message,
       };
     }
 
-    console.log("Gemini analysis complete:", {
-      brand: geminiResult.analysis.brand,
-      category: geminiResult.analysis.category,
-      urlsFound: Object.values(geminiResult.urls).filter(u => u !== null).length
-    });
-
-    // filtering out invalid urls and the original platform
-    const urlsToScrape = filterValidURLs(
-      geminiResult.urls,
-      originalProduct.platformDomain
+    const searchURLs = buildSearchURLs(
+      searchAnalysis.searchQuery || originalProduct.productName,
+      searchAnalysis.platforms || ["amazon.in", "flipkart.com"]
     );
 
-    console.log(`Found ${urlsToScrape.length} alternative platforms to scrape`);
+    // filtering out the platform the original product is already on
+    const platformsToSearch = searchURLs
+      .filter(validateSearchURL)
+      .filter(({ platform }) => !url.includes(platform));
 
-    if (urlsToScrape.length === 0) {
+    console.log(`Searching ${platformsToSearch.length} other platforms for: "${searchAnalysis.searchQuery}"`);
+
+    if (platformsToSearch.length === 0) {
       return {
         success: true,
-        original: {
-          ...originalProduct,
-          dealScore: originalScore,
-          url,
-        },
+        original: { ...originalProduct, dealScore: originalScore, url },
         alternatives: [],
-        analysis: geminiResult.analysis,
+        analysis: searchAnalysis.productAnalysis || { productName: originalProduct.productName },
       };
     }
 
-    // scraping all alternative urls in parallel
-    const scrapePromises = urlsToScrape.map(async ({ platform, url: productUrl }) => {
+    // scraping search result pages in parallel and extracting actual product urls via firecrawl
+    const scrapePromises = platformsToSearch.map(async ({ platform, url: searchUrl }) => {
       try {
-        console.log(`Scraping ${platform}...`);
+        console.log(`Searching ${platform}...`);
 
-        const productData = await scrapeProduct(productUrl);
+        const productData = await scrapeProduct(searchUrl);
+
+        if (!productData.productName || !productData.currentPrice) {
+          console.log(`${platform}: no valid product extracted from search results`);
+          return null;
+        }
 
         // rejecting results that don't match the original product (wrong variant/generation)
         if (!isSameProduct(originalProduct.productName, productData.productName)) {
           console.log(
-            `${platform}: product name mismatch — expected "${originalProduct.productName}", got "${productData.productName}". Skipping.`
+            `${platform}: product mismatch — original: "${originalProduct.productName}", found: "${productData.productName}". Skipping.`
           );
           return null;
         }
@@ -364,6 +355,9 @@ export async function findSimilarProducts(url) {
           return null;
         }
 
+        // using the actual product page url extracted by firecrawl, not the search url
+        const actualProductUrl = productData.productUrl || searchUrl;
+
         const dealScore = calculateDealScore({
           rating: productData.rating,
           reviewCount: productData.reviewCount,
@@ -372,31 +366,25 @@ export async function findSimilarProducts(url) {
           platformDomain: productData.platformDomain,
         });
 
-        console.log(`${platform} scraped successfully (Score: ${dealScore.score})`);
+        console.log(`${platform}: found "${productData.productName}" at ${productData.currentPrice} (Score: ${dealScore.score})`);
 
         return {
           ...productData,
           dealScore,
-          url: productUrl,
+          url: actualProductUrl,
         };
       } catch (error) {
-        console.error(`Failed to scrape ${platform}:`, error.message);
+        console.error(`${platform} search failed:`, error.message);
         return null;
       }
     });
 
     const alternatives = (await Promise.all(scrapePromises)).filter(Boolean);
 
-    console.log(`Successfully scraped ${alternatives.length}/${urlsToScrape.length} alternatives`);
+    console.log(`Found ${alternatives.length} matching products across other platforms`);
 
     // sorting by deal score, best first
     alternatives.sort((a, b) => b.dealScore.score - a.dealScore.score);
-
-    console.log("Top 3 alternatives:", alternatives.slice(0, 3).map(p => ({
-      platform: p.platformDomain,
-      score: p.dealScore.score,
-      price: p.currentPrice
-    })));
 
     return {
       success: true,
@@ -406,7 +394,7 @@ export async function findSimilarProducts(url) {
         url,
       },
       alternatives,
-      analysis: geminiResult.analysis,
+      analysis: searchAnalysis.productAnalysis || { productName: originalProduct.productName },
     };
 
   } catch (error) {
