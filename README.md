@@ -1,15 +1,16 @@
 # FoxDeal
 
-AI-powered price tracker that monitors products across 20+ Indian and international e-commerce platforms. Track prices, compare deals across sites, and get email alerts when prices drop.
+Price tracker for Indian e-commerce. Search a product by name, see it across Amazon, Flipkart, Myntra, Croma, and more — then pick what to track. Get email alerts when prices drop, and ask AI to analyse whether the deal is worth it.
 
 ## What it does
 
-- **Track products** by pasting a URL from Amazon, Flipkart, Myntra, or any supported store
-- **Smart search** by typing a product name -- Gemini AI finds it across multiple platforms automatically
-- **Deal scoring** algorithm rates every product on a 0-100 scale based on rating, reviews, seller trust, and platform reliability
-- **Cross-platform comparison** shows the same product on different sites side by side, sorted by deal score
-- **Daily price checks** via a cron job that scrapes all tracked products and sends email alerts on price drops
-- **Price history charts** to visualize how a product's price has moved over time
+- **Search by name** — type a product name and Google CSE finds real listings from verified Indian e-commerce sites. No scraping until you decide to track something.
+- **Compare by URL** — paste a product URL and we scrape it, then use Google search to find the same product on other platforms for comparison.
+- **Progressive tracking** — select which listings to track. Products are scraped and added one by one with a live progress counter (1/4, 2/4...).
+- **Deal scoring** — each tracked product is scored 0–100 based on product rating, review count, seller trust, and platform reliability.
+- **Price history charts** — see how a product's price has moved over time.
+- **Daily price checks** — a cron job re-scrapes all tracked products and sends email alerts when prices drop.
+- **AI deal verdict** — on-demand analysis of whether the current deal is worth it. Factors in deal score, MRP discount, ratings, and price history if available. Only runs when you ask for it.
 
 ## Tech stack
 
@@ -18,8 +19,9 @@ AI-powered price tracker that monitors products across 20+ Indian and internatio
 | Framework | Next.js 16 (App Router, Server Actions) |
 | Frontend | React 19, Tailwind CSS 4, Shadcn UI |
 | Database | Supabase (PostgreSQL + Auth + RLS) |
-| Scraping | Firecrawl (AI-powered extraction) |
-| AI | Google Gemini 2.5 Flash |
+| Product search | Google Programmable Search Engine (Custom Search API) |
+| Scraping | Firecrawl (AI-powered structured extraction) |
+| AI analysis | Google Gemini 2.5 Flash |
 | Email | Resend |
 | Charts | Recharts |
 
@@ -28,67 +30,64 @@ AI-powered price tracker that monitors products across 20+ Indian and internatio
 ```
 app/
   page.jsx              main dashboard
-  actions.js            server actions (all backend logic)
-  layout.js             root layout with toaster
-  auth/callback/        oauth callback handler
+  actions.js            all server actions
+  layout.js             root layout
+  auth/callback/        oauth callback
   api/cron/             daily price check endpoint
-  api/test-email/       email testing endpoint
-  error/                auth error page
+  api/test-email/       email test endpoint
 
 components/
-  AddProductForm.js     url input + smart search tabs
-  ProductCard.js        tracked product display with chart toggle
-  ProductComparisonModal.js   cross-platform comparison view
-  ProductPreviewModal.js      product preview before tracking
-  PriceChart.js         price history line chart
-  AuthButton.js         sign in / sign out
-  AuthModal.js          email + google auth dialog
-  ui/                   shadcn primitives
+  AddProductForm.js     search/url tabs + progressive adding UI
+  ProductCard.js        tracked product with chart and AI verdict
+  ProductComparisonModal.js   shows CSE results + scraped original
+  PriceChart.js         price history chart
+  AuthButton.js         sign in/out
+  AuthModal.js          email/google auth
 
 lib/
-  firecrawl.js          scraping with platform-specific configs
+  google-cse.js         google custom search api wrapper
+  gemini-ai-verdict.js  on-demand deal analysis via gemini
+  firecrawl.js          product scraping with platform configs
   dealScore.js          weighted scoring algorithm
-  gemini.js             cross-platform url discovery via ai
-  gemini-search-working.js   smart search via search page scraping
-  email.js              price drop alert emails
-  utils.js              tailwind class merging utility
+  email.js              price drop email alerts
+  utils.js              tailwind utility
 
 utils/supabase/
-  server.js             server-side supabase client
-  client.js             browser-side supabase client
-  middleware.js          session refresh middleware
+  server.js             server-side client
+  client.js             browser-side client
+  middleware.js         session refresh
 ```
 
 ## How the deal score works
 
-Every product gets a score from 0 to 100 using four weighted factors:
+Four weighted factors:
 
 | Factor | Weight | What it measures |
 |--------|--------|-----------------|
-| Product rating | 40% | Customer star rating converted to 0-100 |
-| Review count | 30% | Social proof -- tiered scoring from 0 (no reviews) to 100 (1000+ reviews) |
-| Seller trust | 20% | Seller rating from the platform, or a lookup against known trusted sellers |
-| Platform trust | 10% | Baseline trust score per platform (Amazon 9.5, Flipkart 9.0, etc.) |
+| Product rating | 40% | Star rating converted to 0–100 |
+| Review count | 30% | Social proof — tiered from 0 (no reviews) to 100 (1000+) |
+| Seller trust | 20% | Seller rating or known trusted seller lookup |
+| Platform trust | 10% | Baseline per-platform score (Amazon 9.5, Flipkart 9.0, etc.) |
 
-Score labels: 85+ Excellent, 70-84 Good, 55-69 Average, 40-54 Below Average, below 40 Poor.
+Score labels: 85+ Excellent, 70–84 Good, 55–69 Average, 40–54 Below Average, below 40 Poor.
 
 ## Supported platforms
 
-Amazon.in, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Snapdeal, Nykaa, BigBasket, Lenskart, FirstCry, Pepperfry, boAt, Amazon.com, Walmart, eBay, and more.
+Amazon India, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Meesho, JioMart, Nykaa, Pepperfry, FirstCry, Lenskart, boAt, ShopClues — and any other site in the configured CSE.
 
 ## Database schema
 
-Two tables with Row Level Security enabled:
+Two tables, both with Row Level Security:
 
-**products** -- stores tracked products per user
+**products**
 - id, user_id, url, name, current_price, currency, image_url
 - original_price, seller_name, rating, review_count, platform_domain, deal_score
 - created_at, updated_at
-- unique constraint on (user_id, url)
+- unique on (user_id, url)
 
-**price_history** -- records every price check
+**price_history**
 - id, product_id, price, currency, checked_at
-- cascading delete when parent product is removed
+- cascading delete with parent product
 
 Schema SQL is in `test/supabase-schema.sql`.
 
@@ -102,16 +101,15 @@ cd foxdeal
 npm install
 ```
 
-### 2. Create accounts and get API keys
+### 2. Get API keys
 
-- **Supabase** -- create a project at supabase.com, grab Project URL, anon key, and service role key
-- **Firecrawl** -- sign up at firecrawl.dev for scraping API key
-- **Gemini** -- get an API key at aistudio.google.com/app/apikey
-- **Resend** -- sign up at resend.com for email API key
+- **Supabase** — project URL, anon key, service role key from supabase.com
+- **Firecrawl** — API key from firecrawl.dev
+- **Gemini** — API key from aistudio.google.com/app/apikey
+- **Google CSE** — create a Programmable Search Engine at programmablesearchengine.google.com, then enable the Custom Search API in Google Cloud Console and create an API key
+- **Resend** — API key from resend.com
 
-### 3. Set up environment variables
-
-Copy `.env.example` to `.env.local` and fill in your keys:
+### 3. Environment variables
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
@@ -119,23 +117,25 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 FIRECRAWL_API_KEY=
 GEMINI_API_KEY=
+GOOGLE_CSE_API_KEY=
+GOOGLE_CSE_ID=
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 CRON_SECRET=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Generate a cron secret with `openssl rand -base64 32`.
+Generate a cron secret: `openssl rand -base64 32`
 
-### 4. Set up the database
+### 4. Database
 
-Open the Supabase SQL Editor and run the contents of `test/supabase-schema.sql`. This creates both tables, indexes, RLS policies, and the updated_at trigger.
+Run `test/supabase-schema.sql` in the Supabase SQL Editor to create both tables, indexes, RLS policies, and the updated_at trigger.
 
-### 5. Configure auth
+### 5. Auth
 
-In Supabase dashboard under Authentication > URL Configuration:
-- Set Site URL to your app URL
-- Add redirect URL: `{your-url}/auth/callback`
+In Supabase → Authentication → URL Configuration:
+- Site URL: your app URL
+- Redirect URL: `{your-url}/auth/callback`
 
 ### 6. Run locally
 
@@ -143,31 +143,18 @@ In Supabase dashboard under Authentication > URL Configuration:
 npm run dev
 ```
 
-Open http://localhost:3000.
+### 7. Cron job
 
-### 7. Set up the cron job
-
-The daily price checker runs at `POST /api/cron/check-prices` with a Bearer token.
-
-For production, use an external cron service like cron-job.org:
-- URL: `https://your-domain.com/api/cron/check-prices`
+Set up a daily POST to `/api/cron/check-prices` from cron-job.org or similar:
 - Method: POST
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
-- Schedule: once daily
-
-Test it manually:
-```bash
-curl -X POST http://localhost:3000/api/cron/check-prices \
-  -H "Authorization: Bearer YOUR_CRON_SECRET"
-```
+- Frequency: once daily
 
 ## Deployment
 
-Works out of the box on Vercel:
-
 1. Push to GitHub
-2. Import the repo on vercel.com
-3. Add all environment variables from `.env.local`
+2. Import on vercel.com
+3. Add all env vars
 4. Deploy
 5. Update `NEXT_PUBLIC_APP_URL` and Supabase redirect URLs with the production domain
 
