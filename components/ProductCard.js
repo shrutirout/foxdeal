@@ -207,7 +207,7 @@ export default function ProductCard({ product }) {
               className="gap-2 text-purple-700 border-purple-200 hover:bg-purple-50 hover:border-purple-300 w-full"
             >
               <Sparkles className="w-4 h-4" />
-              Ask AI — Is this a good deal?
+              Ask AI: Is this a good deal?
             </Button>
           )}
 

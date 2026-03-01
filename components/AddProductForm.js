@@ -3,9 +3,7 @@
 import { useState } from "react";
 import {
   searchProductsCSE,
-  findSimilarProductsCSE,
   addProductByUrl,
-  addScrapedProduct,
 } from "@/app/actions";
 import AuthModal from "./AuthModal";
 import ProductComparisonModal from "./ProductComparisonModal";
@@ -20,16 +18,12 @@ export default function AddProductForm({ user }) {
   const [loading, setLoading] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showComparisonModal, setShowComparisonModal] = useState(false);
-
-  // comparison modal data
-  const [originalProduct, setOriginalProduct] = useState(null);
   const [cseResults, setCseResults] = useState([]);
-  const [isUrlMode, setIsUrlMode] = useState(false);
 
   // progressive adding state
-  const [addingItems, setAddingItems] = useState(null); // null = not adding, array = in progress
+  const [addingItems, setAddingItems] = useState(null);
 
-  // search mode: google cse, no scraping
+  // search mode: serper shopping search, no scraping
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!user) { setShowAuthModal(true); return; }
@@ -48,8 +42,6 @@ export default function AddProductForm({ user }) {
       }
 
       setCseResults(result.results);
-      setOriginalProduct(null);
-      setIsUrlMode(false);
       setShowComparisonModal(true);
     } catch (err) {
       toast.error(err.message || "Search failed");
@@ -58,63 +50,42 @@ export default function AddProductForm({ user }) {
     }
   };
 
-  // url mode: scrape original (1 credit) + cse for alternatives (0 credits)
-  const handleUrlCompare = async (e) => {
+  // url mode: scrape + track 1 product directly, no comparison needed
+  const handleUrlTrack = async (e) => {
     e.preventDefault();
     if (!user) { setShowAuthModal(true); return; }
     if (!input.trim()) { toast.error("Please enter a product URL"); return; }
 
-    setLoading(true);
-    try {
-      const result = await findSimilarProductsCSE(input.trim());
-      if (result.error) { toast.error(result.error); return; }
-
-      setOriginalProduct(result.original);
-      setCseResults(result.alternatives || []);
-      setIsUrlMode(true);
-      setShowComparisonModal(true);
-    } catch (err) {
-      toast.error(err.message || "Failed to process product");
-    } finally {
-      setLoading(false);
-    }
+    await handleConfirmSelection([{
+      url: input.trim(),
+      title: input.trim(),
+      isOriginal: false,
+      originalData: null,
+    }]);
   };
 
   // called when user confirms selection in the comparison modal
-  // selectedItems = array of { url, title, isOriginal, originalData? }
   const handleConfirmSelection = async (selectedItems) => {
     if (!selectedItems || selectedItems.length === 0) return;
 
     setShowComparisonModal(false);
 
-    // init progress tracking
     const items = selectedItems.map((item) => ({
       url: item.url,
       title: item.title || item.url,
-      isOriginal: item.isOriginal || false,
-      originalData: item.originalData || null,
-      status: "pending", // pending | adding | done | failed
+      status: "pending",
       error: null,
     }));
 
     setAddingItems(items);
 
-    // process each item sequentially
     for (let i = 0; i < items.length; i++) {
       setAddingItems((prev) =>
         prev.map((it, idx) => (idx === i ? { ...it, status: "adding" } : it))
       );
 
       try {
-        let result;
-
-        if (items[i].isOriginal && items[i].originalData) {
-          // original was already scraped — save without re-scraping (0 credits)
-          result = await addScrapedProduct(items[i].originalData, items[i].url);
-        } else {
-          // cse alternative — scrape and save (1 credit each)
-          result = await addProductByUrl(items[i].url);
-        }
+        const result = await addProductByUrl(items[i].url);
 
         setAddingItems((prev) =>
           prev.map((it, idx) =>
@@ -137,11 +108,9 @@ export default function AddProductForm({ user }) {
       }
     }
 
-    // brief pause so user sees all items done, then reset
     await new Promise((r) => setTimeout(r, 1800));
 
-    const finalItems = items; // read after loop
-    const doneCount = (await new Promise((r) => {
+    const doneCount = await new Promise((r) => {
       setAddingItems((prev) => {
         const done = prev.filter((it) => it.status === "done").length;
         const failed = prev.filter((it) => it.status === "failed").length;
@@ -150,7 +119,7 @@ export default function AddProductForm({ user }) {
         r(done);
         return prev;
       });
-    }));
+    });
 
     setAddingItems(null);
     setInput("");
@@ -158,8 +127,7 @@ export default function AddProductForm({ user }) {
     if (doneCount > 0) window.location.reload();
   };
 
-  // ─── progress overlay ──────────────────────────────────────────────────────
-
+  // progress overlay shown while scraping and adding products
   if (addingItems) {
     const done = addingItems.filter((i) => i.status === "done").length;
     const failed = addingItems.filter((i) => i.status === "failed").length;
@@ -171,7 +139,7 @@ export default function AddProductForm({ user }) {
         <div className="bg-white rounded-2xl border border-orange-200 shadow-lg p-8">
           <div className="text-center mb-6">
             <p className="text-lg font-semibold text-gray-800">
-              Adding Products to Your Tracker
+              Adding {total === 1 ? "Product" : "Products"} to Your Tracker
             </p>
             <p className="text-sm text-gray-500 mt-1">
               {current < total
@@ -179,7 +147,6 @@ export default function AddProductForm({ user }) {
                 : "All done!"}
             </p>
 
-            {/* progress bar */}
             <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full transition-all duration-500"
@@ -204,41 +171,21 @@ export default function AddProductForm({ user }) {
                 }`}
               >
                 <div className="flex-shrink-0">
-                  {item.status === "done" && (
-                    <CheckCircle2 className="w-5 h-5 text-green-500" />
-                  )}
-                  {item.status === "failed" && (
-                    <XCircle className="w-5 h-5 text-red-500" />
-                  )}
-                  {item.status === "adding" && (
-                    <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />
-                  )}
-                  {item.status === "pending" && (
-                    <Circle className="w-5 h-5 text-gray-300" />
-                  )}
+                  {item.status === "done" && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                  {item.status === "failed" && <XCircle className="w-5 h-5 text-red-500" />}
+                  {item.status === "adding" && <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />}
+                  {item.status === "pending" && <Circle className="w-5 h-5 text-gray-300" />}
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">
-                    {item.title}
-                  </p>
-                  {item.status === "adding" && (
-                    <p className="text-xs text-orange-600">Scraping product details...</p>
-                  )}
-                  {item.status === "done" && (
-                    <p className="text-xs text-green-600">Added successfully</p>
-                  )}
-                  {item.status === "failed" && (
-                    <p className="text-xs text-red-600">{item.error || "Failed to add"}</p>
-                  )}
-                  {item.status === "pending" && (
-                    <p className="text-xs text-gray-400">Waiting...</p>
-                  )}
+                  <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                  {item.status === "adding" && <p className="text-xs text-orange-600">Scraping product details...</p>}
+                  {item.status === "done" && <p className="text-xs text-green-600">Added successfully</p>}
+                  {item.status === "failed" && <p className="text-xs text-red-600">{item.error || "Failed to add"}</p>}
+                  {item.status === "pending" && <p className="text-xs text-gray-400">Waiting...</p>}
                 </div>
 
-                <div className="text-xs font-medium text-gray-400">
-                  {idx + 1}/{total}
-                </div>
+                <div className="text-xs font-medium text-gray-400">{idx + 1}/{total}</div>
               </div>
             ))}
           </div>
@@ -247,12 +194,9 @@ export default function AddProductForm({ user }) {
     );
   }
 
-  // ─── main form ─────────────────────────────────────────────────────────────
-
   return (
     <>
       <div className="w-full max-w-4xl mx-auto">
-        {/* mode toggle */}
         <div className="flex gap-2 mb-4 p-1 bg-gray-100 rounded-lg">
           <button
             onClick={() => setMode("search")}
@@ -274,12 +218,12 @@ export default function AddProductForm({ user }) {
             }`}
           >
             <Link2 className="w-4 h-4" />
-            Compare by URL
+            Search by URL
           </button>
         </div>
 
         <form
-          onSubmit={mode === "search" ? handleSearch : handleUrlCompare}
+          onSubmit={mode === "search" ? handleSearch : handleUrlTrack}
           className="flex gap-2"
         >
           <Input
@@ -294,16 +238,20 @@ export default function AddProductForm({ user }) {
             disabled={loading}
             className="flex-1"
           />
-          <Button type="submit" disabled={loading} className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white">
+          <Button
+            type="submit"
+            disabled={loading}
+            className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white"
+          >
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {mode === "search" ? "Searching..." : "Finding..."}
+                Searching...
               </>
             ) : mode === "search" ? (
               "Search"
             ) : (
-              "Find & Compare"
+              "Track"
             )}
           </Button>
         </form>
@@ -311,11 +259,11 @@ export default function AddProductForm({ user }) {
         <p className="text-sm text-gray-500 mt-2">
           {mode === "search" ? (
             <>
-              <strong>Search by Name:</strong> Find this product across Amazon, Flipkart, Myntra &amp; more — then choose what to track
+              <strong>Search by Name:</strong> Find this product across Amazon, Flipkart, Myntra and more, then choose what to track
             </>
           ) : (
             <>
-              <strong>Compare by URL:</strong> Paste any product URL — we find the same product on other platforms to compare prices
+              <strong>Search by URL:</strong> Paste a product URL and we scrape and track it directly
             </>
           )}
         </p>
@@ -327,9 +275,7 @@ export default function AddProductForm({ user }) {
         isOpen={showComparisonModal}
         onClose={() => { setShowComparisonModal(false); setLoading(false); }}
         onConfirm={handleConfirmSelection}
-        original={isUrlMode ? originalProduct : null}
         cseResults={cseResults}
-        isUrlMode={isUrlMode}
       />
     </>
   );
