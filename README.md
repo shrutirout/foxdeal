@@ -4,8 +4,8 @@ Price tracker for Indian e-commerce. Search a product by name, see it across Ama
 
 ## What it does
 
-- **Search by name** — type a product name and Google CSE finds real listings from verified Indian e-commerce sites. No scraping until you decide to track something.
-- **Compare by URL** — paste a product URL and we scrape it, then use Google search to find the same product on other platforms for comparison.
+- **Search by name** — type a product name and Serper finds real Google listings from verified Indian e-commerce sites. No scraping until you decide to track something.
+- **Compare by URL** — paste a product URL and we scrape it, then use Serper to find the same product on other platforms for comparison.
 - **Progressive tracking** — select which listings to track. Products are scraped and added one by one with a live progress counter (1/4, 2/4...).
 - **Deal scoring** — each tracked product is scored 0–100 based on product rating, review count, seller trust, and platform reliability.
 - **Price history charts** — see how a product's price has moved over time.
@@ -19,7 +19,7 @@ Price tracker for Indian e-commerce. Search a product by name, see it across Ama
 | Framework | Next.js 16 (App Router, Server Actions) |
 | Frontend | React 19, Tailwind CSS 4, Shadcn UI |
 | Database | Supabase (PostgreSQL + Auth + RLS) |
-| Product search | Google Programmable Search Engine (Custom Search API) |
+| Product search | Serper (Google search API, 2500 free queries on signup) |
 | Scraping | Firecrawl (AI-powered structured extraction) |
 | AI analysis | Google Gemini 2.5 Flash |
 | Email | Resend |
@@ -39,13 +39,13 @@ app/
 components/
   AddProductForm.js     search/url tabs + progressive adding UI
   ProductCard.js        tracked product with chart and AI verdict
-  ProductComparisonModal.js   shows CSE results + scraped original
+  ProductComparisonModal.js   shows Serper results + scraped original
   PriceChart.js         price history chart
   AuthButton.js         sign in/out
   AuthModal.js          email/google auth
 
 lib/
-  google-cse.js         google custom search api wrapper
+  serper.js             google search via serper.dev
   gemini-ai-verdict.js  on-demand deal analysis via gemini
   firecrawl.js          product scraping with platform configs
   dealScore.js          weighted scoring algorithm
@@ -73,7 +73,7 @@ Score labels: 85+ Excellent, 70–84 Good, 55–69 Average, 40–54 Below Averag
 
 ## Supported platforms
 
-Amazon India, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Meesho, JioMart, Nykaa, Pepperfry, FirstCry, Lenskart, boAt, ShopClues — and any other site in the configured CSE.
+Amazon India, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Meesho, JioMart, Nykaa, Pepperfry, FirstCry, Lenskart, boAt, ShopClues.
 
 ## Database schema
 
@@ -106,7 +106,7 @@ npm install
 - **Supabase** — project URL, anon key, service role key from supabase.com
 - **Firecrawl** — API key from firecrawl.dev
 - **Gemini** — API key from aistudio.google.com/app/apikey
-- **Google CSE** — create a Programmable Search Engine at programmablesearchengine.google.com, then enable the Custom Search API in Google Cloud Console and create an API key
+- **Serper** — API key from serper.dev (2500 free queries on signup, no credit card)
 - **Resend** — API key from resend.com
 
 ### 3. Environment variables
@@ -117,8 +117,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 FIRECRAWL_API_KEY=
 GEMINI_API_KEY=
-GOOGLE_CSE_API_KEY=
-GOOGLE_CSE_ID=
+SERPER_API_KEY=
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 CRON_SECRET=
