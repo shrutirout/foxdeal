@@ -228,7 +228,7 @@ export async function searchProductsCSE(productName) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
 
-    const { searchProducts } = await import("@/lib/google-cse");
+    const { searchProducts } = await import("@/lib/serper");
     const results = await searchProducts(productName.trim());
 
     if (!results || results.length === 0) {
@@ -273,8 +273,8 @@ export async function findSimilarProductsCSE(url) {
 
     console.log(`Original: "${originalProduct.productName}" at ₹${originalProduct.currentPrice}`);
 
-    // 0 firecrawl credits: cse search for the same product on other platforms
-    const { searchProducts } = await import("@/lib/google-cse");
+    // 0 firecrawl credits: serper search for the same product on other platforms
+    const { searchProducts } = await import("@/lib/serper");
     let cseResults = [];
 
     try {
