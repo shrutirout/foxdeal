@@ -87,14 +87,13 @@ export default function ProductCard({ product }) {
     <Card className="hover:shadow-lg transition-shadow">
       <CardHeader className="pb-3">
         <div className="flex gap-4">
-          {product.image_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={product.image_url}
-              alt={product.name}
-              className="w-20 h-20 object-cover rounded-md border"
-            />
-          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={product.image_url || "/placeholder-product.svg"}
+            alt={product.name}
+            className="w-20 h-20 object-cover rounded-md border bg-gray-50"
+            onError={(e) => { e.target.src = "/placeholder-product.svg"; }}
+          />
 
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 line-clamp-2 mb-2">
