@@ -60,10 +60,7 @@ export default function AuthModal({ isOpen, onClose }) {
           onClose();
           router.refresh();
         } else {
-          // email verification required
-          await signUp.prepareEmailAddressVerification({ strategy: "email_link", redirectUrl: "/" });
-          toast.success("Check your email and click the verification link to activate your account.");
-          onClose();
+          toast.error(`Sign-up failed (${result.status}). Check your Clerk dashboard settings.`);
         }
       } else {
         if (!signInLoaded) return;
@@ -86,15 +83,19 @@ export default function AuthModal({ isOpen, onClose }) {
       console.error("Auth error:", error);
       const msg = error.errors?.[0]?.longMessage || error.errors?.[0]?.message || error.message;
 
-      if (msg?.includes("password") || msg?.includes("credentials")) {
-        toast.error("Invalid email or password. Please check your credentials and try again.");
-      } else if (msg?.includes("verified") || msg?.includes("verification")) {
-        toast.error("Please check your email and click the verification link to activate your account.");
-      } else if (msg?.includes("already")) {
-        toast.error("This email is already registered. Please sign in instead.");
-        setMode("signin");
+      if (mode === "signup") {
+        if (msg?.includes("already")) {
+          toast.error("This email is already registered. Please sign in instead.");
+          setMode("signin");
+        } else {
+          toast.error(msg || "Sign-up failed. Please try again.");
+        }
       } else {
-        toast.error(msg || "Authentication failed");
+        if (msg?.includes("already")) {
+          toast.error("This email is already registered. Please sign in instead.");
+        } else {
+          toast.error("Invalid email or password. Please check your credentials and try again.");
+        }
       }
     } finally {
       setLoading(false);
@@ -142,11 +143,11 @@ export default function AuthModal({ isOpen, onClose }) {
             />
             <Input
               type="password"
-              placeholder="Password (min 6 characters)"
+              placeholder="Password (min 8 characters)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
               disabled={loading}
               className="h-11"
             />
