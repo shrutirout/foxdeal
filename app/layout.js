@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ClerkProvider } from "@clerk/nextjs";
 
 export const metadata = {
   title: "FoxDeal - Smart Price Tracker",
@@ -8,11 +9,13 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className="antialiased">
-        {children}
-        <Toaster />
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body className="antialiased">
+          {children}
+          <Toaster />
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

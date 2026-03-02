@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { useSignIn, useSignUp } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -17,29 +18,26 @@ const DEMO_EMAIL = "demo@foxdeal.app";
 const DEMO_PASSWORD = "foxdeal123";
 
 export default function AuthModal({ isOpen, onClose }) {
-  const supabase = createClient();
+  const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
+  const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
+  const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("signin");
 
   const handleGoogleLogin = async () => {
+    if (!signInLoaded) return;
     try {
-      const { origin } = window.location;
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${origin}/auth/callback`,
-        },
+      await signIn.authenticateWithRedirect({
+        strategy: "oauth_google",
+        redirectUrl: "/sso-callback",
+        redirectUrlComplete: "/",
       });
-
-      if (error) {
-        console.error("Google OAuth error:", error);
-        toast.error("Google sign-in is not configured. Please use email/password instead.");
-      }
     } catch (err) {
       console.error("OAuth error:", err);
-      toast.error("Authentication error. Please try email/password.");
+      toast.error("Google sign-in failed. Please use email/password.");
     }
   };
 
@@ -49,46 +47,54 @@ export default function AuthModal({ isOpen, onClose }) {
 
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
+        if (!signUpLoaded) return;
+
+        const result = await signUp.create({
+          emailAddress: email,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-          },
         });
 
-        if (error) throw error;
-
-        // checking if email is already registered
-        if (data?.user?.identities?.length === 0) {
-          toast.error("This email is already registered. Please sign in instead.");
-          setMode("signin");
+        if (result.status === "complete") {
+          await setSignUpActive({ session: result.createdSessionId });
+          toast.success("Account created! Welcome to FoxDeal.");
+          onClose();
+          router.refresh();
         } else {
-          toast.success("Account created! Please check your email to verify.");
+          // email verification required
+          await signUp.prepareEmailAddressVerification({ strategy: "email_link", redirectUrl: "/" });
+          toast.success("Check your email and click the verification link to activate your account.");
           onClose();
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
+        if (!signInLoaded) return;
+
+        const result = await signIn.create({
+          identifier: email,
           password,
         });
 
-        if (error) throw error;
-
-        toast.success("Signed in successfully!");
-        onClose();
-        window.location.reload();
+        if (result.status === "complete") {
+          await setSignInActive({ session: result.createdSessionId });
+          toast.success("Signed in successfully!");
+          onClose();
+          router.refresh();
+        } else {
+          toast.error("Sign-in incomplete. Please try again.");
+        }
       }
     } catch (error) {
       console.error("Auth error:", error);
+      const msg = error.errors?.[0]?.longMessage || error.errors?.[0]?.message || error.message;
 
-      // surfacing specific error messages for common cases
-      if (error.message === "Email not confirmed") {
-        toast.error("Please check your email and click the verification link to activate your account.");
-      } else if (error.message === "Invalid login credentials") {
+      if (msg?.includes("password") || msg?.includes("credentials")) {
         toast.error("Invalid email or password. Please check your credentials and try again.");
+      } else if (msg?.includes("verified") || msg?.includes("verification")) {
+        toast.error("Please check your email and click the verification link to activate your account.");
+      } else if (msg?.includes("already")) {
+        toast.error("This email is already registered. Please sign in instead.");
+        setMode("signin");
       } else {
-        toast.error(error.message || "Authentication failed");
+        toast.error(msg || "Authentication failed");
       }
     } finally {
       setLoading(false);
@@ -204,7 +210,7 @@ export default function AuthModal({ isOpen, onClose }) {
           </Button>
 
           <p className="text-xs text-gray-500 text-center mt-2">
-            Note: Google sign-in requires configuration in Supabase dashboard
+            Note: Google sign-in requires configuration in the Clerk dashboard
           </p>
         </div>
       </DialogContent>

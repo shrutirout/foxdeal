@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { sql } from "@/lib/db";
 import { scrapeProduct } from "@/lib/firecrawl";
 import { sendPriceDropAlert } from "@/lib/email";
+import { clerkClient } from "@clerk/nextjs/server";
 
 // maxDuration applies on Vercel Pro; free (Hobby) plan caps at 10s
 export const maxDuration = 300;
@@ -26,26 +27,9 @@ async function runPriceCheck(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return NextResponse.json(
-      { error: "Missing Supabase environment variables" },
-      { status: 500 }
-    );
-  }
-
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-
-  const { data: products, error: productsError } = await supabase
-    .from("products")
-    .select("id, user_id, url, name, current_price, currency, image_url");
-
-  if (productsError) {
-    console.error("Failed to fetch products:", productsError);
-    throw productsError;
-  }
+  const products = await sql`
+    SELECT id, user_id, url, name, current_price, currency, image_url FROM products
+  `;
 
   if (!products || products.length === 0) {
     return NextResponse.json({
@@ -86,28 +70,20 @@ async function runPriceCheck(request) {
         continue;
       }
 
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({
-          current_price: newPrice,
-          currency: productData.currencyCode || product.currency,
-          name: productData.productName || product.name,
-          image_url: productData.productImageUrl || product.image_url,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", product.id);
+      await sql`
+        UPDATE products SET
+          current_price = ${newPrice},
+          currency = ${productData.currencyCode || product.currency},
+          name = ${productData.productName || product.name},
+          image_url = ${productData.productImageUrl || product.image_url},
+          updated_at = NOW()
+        WHERE id = ${product.id}
+      `;
 
-      if (updateError) {
-        console.error(`Failed to update product ${product.id}:`, updateError);
-        results.failed++;
-        continue;
-      }
-
-      await supabase.from("price_history").insert({
-        product_id: product.id,
-        price: newPrice,
-        currency: productData.currencyCode || product.currency,
-      });
+      await sql`
+        INSERT INTO price_history (product_id, price, currency)
+        VALUES (${product.id}, ${newPrice}, ${productData.currencyCode || product.currency})
+      `;
 
       if (oldPrice !== newPrice) {
         results.priceChanges++;
@@ -115,21 +91,15 @@ async function runPriceCheck(request) {
 
         if (newPrice < oldPrice) {
           try {
-            const { data: userData, error: userError } =
-              await supabase.auth.admin.getUserById(product.user_id);
+            const client = await clerkClient();
+            const clerkUser = await client.users.getUser(product.user_id);
+            const email = clerkUser.emailAddresses?.[0]?.emailAddress;
 
-            if (userError) {
-              console.error(`Failed to fetch user ${product.user_id}:`, userError);
-            } else if (userData?.user?.email) {
-              const emailResult = await sendPriceDropAlert(
-                userData.user.email,
-                product,
-                oldPrice,
-                newPrice
-              );
+            if (email) {
+              const emailResult = await sendPriceDropAlert(email, product, oldPrice, newPrice);
               if (emailResult.success) {
                 results.alertsSent++;
-                console.log(`Alert sent to ${userData.user.email}`);
+                console.log(`Alert sent to ${email}`);
               }
             }
           } catch (emailErr) {

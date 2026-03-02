@@ -1,22 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { signOut } from "@/app/actions";
+import { useUser, useClerk } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import AuthModal from "./AuthModal";
 import { Button } from "@/components/ui/button";
 import { LogIn, LogOut } from "lucide-react";
 
-export default function AuthButton({ user }) {
+export default function AuthButton() {
+  const { user, isLoaded } = useUser();
+  const { signOut } = useClerk();
+  const router = useRouter();
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  if (!isLoaded) return null;
 
   if (user) {
     return (
-      <form action={signOut}>
-        <Button variant="ghost" size="sm" type="submit" className="gap-2">
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </Button>
-      </form>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-2"
+        onClick={() => signOut(() => router.refresh())}
+      >
+        <LogOut className="w-4 h-4" />
+        Sign Out
+      </Button>
     );
   }
 
