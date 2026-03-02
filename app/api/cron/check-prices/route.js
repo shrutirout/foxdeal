@@ -103,13 +103,13 @@ async function runPriceCheck(request) {
         continue;
       }
 
-      if (oldPrice !== newPrice) {
-        await supabase.from("price_history").insert({
-          product_id: product.id,
-          price: newPrice,
-          currency: productData.currencyCode || product.currency,
-        });
+      await supabase.from("price_history").insert({
+        product_id: product.id,
+        price: newPrice,
+        currency: productData.currencyCode || product.currency,
+      });
 
+      if (oldPrice !== newPrice) {
         results.priceChanges++;
         console.log(`Price changed for ${product.name}: ${oldPrice} to ${newPrice}`);
 
