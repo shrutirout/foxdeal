@@ -140,7 +140,7 @@ async function migrateProducts() {
         ${p.currency || "INR"}, ${p.image_url || null},
         ${p.original_price || null}, ${p.seller_name || null},
         ${p.rating || null}, ${p.review_count || 0},
-        ${p.platform_domain || null}, ${p.deal_score || null},
+        ${p.platform_domain || null}, ${p.deal_score ? Math.round(parseFloat(p.deal_score)) : null},
         ${p.created_at}, ${p.updated_at}
       )
       ON CONFLICT (user_id, url) DO NOTHING

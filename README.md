@@ -18,12 +18,14 @@ Price tracker for Indian e-commerce. Search a product by name, see it across Ama
 |-------|-----------|
 | Framework | Next.js 16 (App Router, Server Actions) |
 | Frontend | React 19, Tailwind CSS 4, Shadcn UI |
-| Database | Supabase (PostgreSQL + Auth + RLS) |
-| Product search | Serper (Google Shopping API, 2500 free queries on signup) |
+| Auth | Clerk (email/password + Google OAuth) |
+| Database | Neon (serverless PostgreSQL) |
+| Product search | Serper (web search with site: operators, 2500 free queries on signup) |
 | Scraping | Firecrawl (AI-powered structured extraction) |
 | AI analysis | Google Gemini 2.5 Flash |
 | Email | Resend |
 | Charts | Recharts |
+| Deployment | Vercel |
 
 ## Project structure
 
@@ -31,8 +33,8 @@ Price tracker for Indian e-commerce. Search a product by name, see it across Ama
 app/
   page.jsx              main dashboard
   actions.js            all server actions
-  layout.js             root layout
-  auth/callback/        oauth callback
+  layout.js             root layout (wrapped in ClerkProvider)
+  sso-callback/         Google OAuth redirect handler
   api/cron/             daily price check endpoint
   api/test-email/       email test endpoint
 
@@ -41,21 +43,20 @@ components/
   ProductCard.js        tracked product with chart and AI verdict
   ProductComparisonModal.js   shows shopping search results
   PriceChart.js         price history chart
-  AuthButton.js         sign in/out
-  AuthModal.js          email/google auth
+  AuthButton.js         sign in/out (Clerk)
+  AuthModal.js          email/password + Google OAuth modal
 
 lib/
-  serper.js             google shopping search via serper.dev
+  db.js                 Neon serverless client (sql tagged template)
+  serper.js             google web search via serper.dev
   gemini-ai-verdict.js  on-demand deal analysis via gemini
   firecrawl.js          product scraping with platform configs
   dealScore.js          weighted scoring algorithm
   email.js              price drop email alerts
   utils.js              tailwind utility
 
-utils/supabase/
-  server.js             server-side client
-  client.js             browser-side client
-  middleware.js         session refresh
+proxy.js                Clerk middleware (Next.js 16 convention)
+vercel.json             Vercel native cron schedule (2am UTC daily)
 ```
 
 ## How the deal score works
@@ -73,14 +74,14 @@ Score labels: 85+ Excellent, 70-84 Good, 55-69 Average, 40-54 Below Average, bel
 
 ## Supported platforms
 
-Amazon India, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Meesho, JioMart, Nykaa, Pepperfry, FirstCry, Lenskart, boAt, ShopClues.
+Amazon India, Flipkart, Myntra, Ajio, Tata CLiQ, Croma, Reliance Digital, Vijay Sales, Snapdeal, Amazon US, eBay, Walmart.
 
 ## Database schema
 
-Two tables, both with Row Level Security:
+Two tables in Neon PostgreSQL:
 
 **products**
-- id, user_id, url, name, current_price, currency, image_url
+- id, user_id (TEXT - Clerk user ID), url, name, current_price, currency, image_url
 - original_price, seller_name, rating, review_count, platform_domain, deal_score
 - created_at, updated_at
 - unique on (user_id, url)
@@ -89,7 +90,7 @@ Two tables, both with Row Level Security:
 - id, product_id, price, currency, checked_at
 - cascading delete with parent product
 
-Schema SQL is in `test/supabase-schema.sql`.
+Security is enforced at the application layer: every query includes `WHERE user_id = $userId`.
 
 ## Setup
 
@@ -103,7 +104,8 @@ npm install
 
 ### 2. Get API keys
 
-- **Supabase** - project URL, anon key, service role key from supabase.com
+- **Clerk** - publishable key + secret key from clerk.com (create an app, enable Email + Password sign-in)
+- **Neon** - DATABASE_URL (pooled connection string) from neon.tech
 - **Firecrawl** - API key from firecrawl.dev
 - **Gemini** - API key from aistudio.google.com/app/apikey
 - **Serper** - API key from serper.dev (2500 free queries on signup, no credit card)
@@ -112,9 +114,9 @@ npm install
 ### 3. Environment variables
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+DATABASE_URL=postgresql://...
 FIRECRAWL_API_KEY=
 GEMINI_API_KEY=
 SERPER_API_KEY=
@@ -128,13 +130,55 @@ Generate a cron secret: `openssl rand -base64 32`
 
 ### 4. Database
 
-Run `test/supabase-schema.sql` in the Supabase SQL Editor to create both tables, indexes, RLS policies, and the updated_at trigger.
+Run this in the Neon SQL Editor to create both tables, indexes, and the updated_at trigger:
 
-### 5. Auth
+```sql
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  name TEXT NOT NULL,
+  current_price DECIMAL(10,2) NOT NULL,
+  currency TEXT DEFAULT 'INR',
+  image_url TEXT,
+  original_price DECIMAL(10,2),
+  seller_name TEXT,
+  rating DECIMAL(3,2),
+  review_count INTEGER DEFAULT 0,
+  platform_domain TEXT,
+  deal_score INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, url)
+);
 
-In Supabase, go to Authentication, then URL Configuration:
-- Site URL: your app URL
-- Redirect URL: `{your-url}/auth/callback`
+CREATE TABLE IF NOT EXISTS price_history (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+  price DECIMAL(10,2) NOT NULL,
+  currency TEXT DEFAULT 'INR',
+  checked_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
+CREATE INDEX IF NOT EXISTS idx_price_history_product_id ON price_history(product_id);
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ language 'plpgsql';
+
+CREATE OR REPLACE TRIGGER update_products_updated_at
+  BEFORE UPDATE ON products
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+```
+
+### 5. Clerk configuration
+
+In the Clerk dashboard:
+- Enable **Email** as a sign-in identifier
+- Enable **Password** under authentication factors
+- Optionally enable Google OAuth (requires Clerk dashboard config + Google Cloud Console setup)
 
 ### 6. Run locally
 
@@ -144,9 +188,9 @@ npm run dev
 
 ### 7. Cron job
 
-The cron job is configured in `vercel.json` and runs automatically on Vercel once per day. No external setup needed.
+The cron job is configured in `vercel.json` and runs automatically on Vercel once per day at 2am UTC. No external setup needed.
 
-If you want to trigger it manually or use an external service like cron-job.org:
+To trigger it manually:
 - URL: `https://your-app.vercel.app/api/cron/check-prices`
 - Method: GET or POST
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
@@ -155,9 +199,9 @@ If you want to trigger it manually or use an external service like cron-job.org:
 
 1. Push to GitHub
 2. Import on vercel.com
-3. Add all env vars
+3. Add all env vars in Vercel project settings
 4. Deploy
-5. Update `NEXT_PUBLIC_APP_URL` and Supabase redirect URLs with the production domain
+5. Update `NEXT_PUBLIC_APP_URL` with the production domain
 
 ## License
 

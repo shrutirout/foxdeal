@@ -78,19 +78,6 @@ export default function AuthModal({ isOpen, onClose }) {
           toast.success("Signed in successfully!");
           onClose();
           router.refresh();
-        } else if (result.status === "needs_second_factor") {
-          toast.error("Two-factor authentication is enabled on your account. Please disable it in the account settings.");
-        } else if (result.status === "needs_first_factor") {
-          // email OTP required — attempt to complete with the password factor directly
-          const attempt = await signIn.attemptFirstFactor({ strategy: "password", password });
-          if (attempt.status === "complete") {
-            await setSignInActive({ session: attempt.createdSessionId });
-            toast.success("Signed in successfully!");
-            onClose();
-            router.refresh();
-          } else {
-            toast.error(`Additional verification required (${attempt.status}). Check your Clerk settings.`);
-          }
         } else {
           toast.error(`Sign-in requires additional step: ${result.status}`);
         }
