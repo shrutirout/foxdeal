@@ -4,8 +4,6 @@ import { scrapeProduct } from "@/lib/firecrawl";
 import { sendPriceDropAlert } from "@/lib/email";
 import { clerkClient } from "@clerk/nextjs/server";
 
-// maxDuration applies on Vercel Pro; free (Hobby) plan caps at 10s
-export const maxDuration = 300;
 
 function scrapeWithTimeout(url, timeoutMs = 35000) {
   return Promise.race([
