@@ -128,7 +128,7 @@ async function _saveProductToDb(userId, url, productData) {
       ${productData.rating || null},
       ${productData.reviewCount || 0},
       ${productData.platformDomain || null},
-      ${dealScore.score},
+      ${Math.round(dealScore.score)},
       NOW()
     )
     ON CONFLICT (user_id, url) DO UPDATE SET
