@@ -1,6 +1,6 @@
 # FoxDeal
 
-Price tracker for Indian e-commerce. Search a product by name, see it across Amazon, Flipkart, Myntra, Croma, and more, then pick what to track. Get email alerts when prices drop, and ask AI to analyse whether the deal is worth it. Project is live and deployed at : (foxdeal.vercel.app)[foxdeal.vercel.app]
+Price tracker for Indian e-commerce. Search a product by name, see it across Amazon, Flipkart, Myntra, Croma, and more, then pick what to track. Get email alerts when prices drop, and ask AI to analyse whether the deal is worth it. Project is live and deployed at : [foxdeal.vercel.app]
 
 ## What it does
 
